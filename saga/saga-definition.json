@@ -1,0 +1,31 @@
+{
+  "name": "order-fulfillment-saga",
+  "trigger": { "topic": "order-events", "type": "OrderCreated" },
+  "initialState": "RESERVING_INVENTORY",
+  "states": {
+    "RESERVING_INVENTORY": {
+      "onEnter": { "topic": "inventory-commands", "type": "ReserveInventory" },
+      "on": {
+        "InventoryReserved": "CHARGING_PAYMENT",
+        "InventoryFailed": "FAILED_NO_STOCK"
+      }
+    },
+    "CHARGING_PAYMENT": {
+      "onEnter": { "topic": "payment-commands", "type": "ChargePayment" },
+      "on": {
+        "PaymentSucceeded": "COMPLETED",
+        "PaymentFailed": "COMPENSATING_RELEASE_INVENTORY"
+      }
+    },
+    "COMPENSATING_RELEASE_INVENTORY": {
+      "compensation": true,
+      "onEnter": { "topic": "inventory-commands", "type": "ReleaseInventory" },
+      "on": {
+        "InventoryReleased": "FAILED_PAYMENT_DECLINED"
+      }
+    },
+    "COMPLETED": { "terminal": true, "outcome": "success" },
+    "FAILED_NO_STOCK": { "terminal": true, "outcome": "failed" },
+    "FAILED_PAYMENT_DECLINED": { "terminal": true, "outcome": "failed" }
+  }
+}
