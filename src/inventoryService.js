@@ -14,6 +14,7 @@
 require('dotenv').config();
 const { pool } = require('./db');
 const { kafka } = require('./kafkaClient');
+const { startHealthServer } = require('./healthServer');
 
 const SKU = 'DEMO-SKU'; // simplification: every order reserves 1 unit of a single demo product
 
@@ -34,9 +35,14 @@ async function reserve(orderId, producer) {
     // quite right. That requires reasoning about cross-topic redelivery
     // ordering, which this project doesn't attempt to solve.
     const type = existing.rows[0].status === 'RESERVED' ? 'InventoryReserved' : 'InventoryFailed';
+    // `replayed: true` makes the duplicate visible directly in the topic
+    // data itself, not just in this service's console log. Without it, a
+    // human (or another service) reading inventory-events cold has no way
+    // to tell "5 legitimate reservations" apart from "1 real reservation
+    // replayed 4 times" — same key, same type, all equally plausible.
     await producer.send({
       topic: 'inventory-events',
-      messages: [{ key: orderId, value: JSON.stringify({ type, orderId }) }],
+      messages: [{ key: orderId, value: JSON.stringify({ type, orderId, replayed: true }) }],
     });
     return;
   }
@@ -86,7 +92,7 @@ async function reserve(orderId, producer) {
       console.log(`[inventory] lost race on concurrent duplicate for order ${orderId}, no double-decrement`);
       await producer.send({
         topic: 'inventory-events',
-        messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReserved', orderId }) }],
+        messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReserved', orderId, replayed: true }) }],
       });
       return;
     }
@@ -95,7 +101,7 @@ async function reserve(orderId, producer) {
 
     await producer.send({
       topic: 'inventory-events',
-      messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReserved', orderId }) }],
+      messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReserved', orderId, replayed: false }) }],
     });
     console.log(`[inventory] reserved 1x ${SKU} for order ${orderId}`);
   } catch (err) {
@@ -132,7 +138,8 @@ async function release(orderId, producer) {
       [orderId]
     );
 
-    if (rows.length > 0) {
+    const alreadyReleased = rows.length === 0;
+    if (!alreadyReleased) {
       await client.query(
         `UPDATE inventory SET available_qty = available_qty + $2 WHERE sku = $1`,
         [rows[0].sku, rows[0].qty]
@@ -143,9 +150,11 @@ async function release(orderId, producer) {
 
     await producer.send({
       topic: 'inventory-events',
-      messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReleased', orderId }) }],
+      messages: [{ key: orderId, value: JSON.stringify({ type: 'InventoryReleased', orderId, replayed: alreadyReleased }) }],
     });
-    console.log(`[inventory] released reservation for order ${orderId}`);
+    console.log(alreadyReleased
+      ? `[inventory] duplicate ReleaseInventory for order ${orderId}, already released, no double-credit`
+      : `[inventory] released reservation for order ${orderId}`);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[inventory] release failed:', err);
@@ -155,6 +164,8 @@ async function release(orderId, producer) {
 }
 
 async function run() {
+  startHealthServer();
+
   const producer = kafka.producer();
   await producer.connect();
 

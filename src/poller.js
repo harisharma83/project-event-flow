@@ -12,6 +12,7 @@
 require('dotenv').config();
 const { pool } = require('./db');
 const { kafka } = require('./kafkaClient');
+const { startHealthServer } = require('./healthServer');
 
 const POLL_INTERVAL_MS = 500;
 const BATCH_SIZE = 100;
@@ -53,6 +54,8 @@ function sleep(ms) {
 }
 
 async function run() {
+  startHealthServer();
+
   const producer = kafka.producer();
   await producer.connect();
   console.log(`Poller connected to Kafka, polling outbox every ${POLL_INTERVAL_MS}ms`);

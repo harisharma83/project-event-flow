@@ -4,12 +4,172 @@ services:
     command:
       - redpanda start --overprovisioned --smp 1 --memory 512M
         --reserve-memory 0M --node-id 0 --check=false
-        --kafka-addr PLAINTEXT://0.0.0.0:9092
-        --advertise-kafka-addr PLAINTEXT://localhost:9092
-    ports: ["9092:9092"]
+        --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+        --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+    ports: ["19092:19092"]
+    volumes:
+      - kafka_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   postgres:
     image: postgres:16
     environment:
       POSTGRES_PASSWORD: eventflow
       POSTGRES_DB: eventflow
     ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eventflow-app:local
+    command: node src/server.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: order-service
+      PORT: "3000"
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  poller:
+    image: eventflow-app:local
+    command: node src/poller.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: poller
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      order-service: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  inventory-service:
+    image: eventflow-app:local
+    command: node src/inventoryService.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: inventory-service
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payment-service:
+    image: eventflow-app:local
+    command: node src/paymentService.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: payment-service
+      GATEWAY_FAILURE_MODE: "off"
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  saga-orchestrator:
+    image: eventflow-app:local
+    command: node src/sagaOrchestrator.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: saga-orchestrator
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  read-model-service:
+    image: eventflow-app:local
+    command: node src/readModelService.js
+    environment:
+      DATABASE_URL: postgres://postgres:eventflow@postgres:5432/eventflow
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: read-model-service
+      READ_MODEL_PORT: "3001"
+    ports: ["3001:3001"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  notification-service:
+    image: eventflow-app:local
+    command: node src/notificationService.js
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: notification-service
+    depends_on:
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Scale this one for the Week 5 rebalance demo, e.g.:
+    #   docker compose up --scale notification-service=3
+
+  # --- Observability stack, stood up empty this week -------------------
+  # Just proving the containers start and join the network. Real scrape
+  # configs / dashboards / trace export wiring is Week 8's job
+  # (OpenTelemetry instrumentation across all services). Nothing below
+  # is connected to anything yet.
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3002:3000"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+volumes:
+  postgres_data:
+  kafka_data:

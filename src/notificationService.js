@@ -19,6 +19,7 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const { kafka } = require('./kafkaClient');
+const { startHealthServer } = require('./healthServer');
 
 // A short random id, just so this replica's own log lines are
 // distinguishable from another replica's in a shared terminal capture —
@@ -28,6 +29,8 @@ const { kafka } = require('./kafkaClient');
 const REPLICA_ID = crypto.randomBytes(3).toString('hex');
 
 async function run() {
+  startHealthServer();
+
   const consumer = kafka.consumer({ groupId: 'notification-service' });
   await consumer.connect();
   await consumer.subscribe({ topic: 'order-events', fromBeginning: false });

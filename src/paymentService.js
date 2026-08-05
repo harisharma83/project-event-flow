@@ -22,6 +22,7 @@ const { pool } = require('./db');
 const { kafka } = require('./kafkaClient');
 const { CircuitBreaker } = require('./circuitBreaker');
 const { withRetry } = require('./retry');
+const { startHealthServer } = require('./healthServer');
 
 const DECLINE_ABOVE_CENTS = 100000; // $1,000 — POST an order above this to force a business decline
 
@@ -171,6 +172,8 @@ async function charge(orderId, amountCents, producer) {
 }
 
 async function run() {
+  startHealthServer();
+
   const producer = kafka.producer();
   await producer.connect();
 

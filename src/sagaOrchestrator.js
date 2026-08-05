@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { pool } = require('./db');
 const { kafka } = require('./kafkaClient');
+const { startHealthServer } = require('./healthServer');
 
 const definition = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'saga', 'saga-definition.json'), 'utf8')
@@ -90,6 +91,8 @@ async function handleEvent(orderId, eventType, producer) {
 }
 
 async function run() {
+  startHealthServer();
+
   const producer = kafka.producer();
   await producer.connect();
 
