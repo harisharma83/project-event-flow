@@ -78,19 +78,29 @@ CREATE TABLE IF NOT EXISTS saga_state (
 --
 -- Postgres has no "ADD CONSTRAINT IF NOT EXISTS", so this DO block is the
 -- standard idiom for making an ALTER TABLE safe to run more than once:
--- try it, and if it already exists (duplicate_object), do nothing.
+-- try it, and if it already exists, do nothing.
+--
+-- Two exception names are caught, not one, because of a real Postgres
+-- quirk: ADD CONSTRAINT ... UNIQUE implicitly creates a backing index
+-- with the same name as the constraint, and Postgres reports "already
+-- exists" for that case as 42P07 (duplicate_table — the index is a
+-- relation), not 42710 (duplicate_object). The first time this schema
+-- ran, the constraint didn't exist yet, so ALTER TABLE succeeded and
+-- this EXCEPTION clause was never actually exercised — the mismatch
+-- only surfaced the first time migrate ran a second time against a
+-- database that already had the constraint.
 DO $$
 BEGIN
   ALTER TABLE inventory_reservations ADD CONSTRAINT inventory_reservations_order_id_key UNIQUE (order_id);
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 DO $$
 BEGIN
   ALTER TABLE payments ADD CONSTRAINT payments_order_id_key UNIQUE (order_id);
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 -- EventFlow Week 5: the read model. A deliberately separate, denormalized
