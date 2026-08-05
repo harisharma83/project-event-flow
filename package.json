@@ -14,7 +14,8 @@
     "flood:payments": "node scripts/floodPayments.js",
     "poison:payment": "node scripts/sendPoisonMessage.js",
     "start:readmodel": "node src/readModelService.js",
-    "start:notification": "node src/notificationService.js"
+    "start:notification": "node src/notificationService.js",
+    "measure:lag": "node scripts/measureConsistencyLag.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
