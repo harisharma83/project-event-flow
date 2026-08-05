@@ -92,3 +92,18 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+
+-- EventFlow Week 5: the read model. A deliberately separate, denormalized
+-- table — NOT a foreign-keyed join target, not written to by any of the
+-- write-side services above. Only src/readModelService.js ever writes
+-- here, by projecting order-events / inventory-events / payment-events.
+-- This is the whole point of CQRS: the write side above stays exactly as
+-- it was, and this is a second model that exists purely to answer
+-- "what's this order's status" fast, without joining across four tables.
+CREATE TABLE IF NOT EXISTS order_status (
+  order_id UUID PRIMARY KEY,
+  customer_id UUID,
+  total_cents INTEGER,
+  status TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
