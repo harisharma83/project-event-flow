@@ -10,7 +10,9 @@
     "start:inventory": "node src/inventoryService.js",
     "start:payment": "node src/paymentService.js",
     "start:saga": "node src/sagaOrchestrator.js",
-    "chaos:duplicate": "node scripts/chaosDuplicate.js"
+    "chaos:duplicate": "node scripts/chaosDuplicate.js",
+    "flood:payments": "node scripts/floodPayments.js",
+    "poison:payment": "node scripts/sendPoisonMessage.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
