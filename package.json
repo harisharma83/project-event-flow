@@ -1,7 +1,7 @@
 {
   "name": "eventflow-order-service",
   "version": "1.0.0",
-  "description": "EventFlow Week 1 - 10 Order Service with the outbox pattern",
+  "description": "EventFlow Week 1 - Order Service with the outbox pattern",
   "main": "src/server.js",
   "scripts": {
     "migrate": "node scripts/migrate.js",
@@ -12,7 +12,9 @@
     "start:saga": "node src/sagaOrchestrator.js",
     "chaos:duplicate": "node scripts/chaosDuplicate.js",
     "flood:payments": "node scripts/floodPayments.js",
-    "poison:payment": "node scripts/sendPoisonMessage.js"
+    "poison:payment": "node scripts/sendPoisonMessage.js",
+    "start:readmodel": "node src/readModelService.js",
+    "start:notification": "node src/notificationService.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
